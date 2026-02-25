@@ -3,6 +3,33 @@
 import { useState, useCallback, useRef } from "react";
 import { AnalysisResult } from "./api/analyze/route";
 
+// Compress and resize image client-side before sending to API
+// Keeps payloads well under Vercel's 4.5MB function limit
+function compressImage(file: File, maxDimension = 1200, quality = 0.85): Promise<{ base64: string; mimeType: string; previewUrl: string }> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const objectUrl = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(objectUrl);
+      const { width, height } = img;
+      const scale = Math.min(1, maxDimension / Math.max(width, height));
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.round(width * scale);
+      canvas.height = Math.round(height * scale);
+      const ctx = canvas.getContext("2d")!;
+      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      const dataUrl = canvas.toDataURL("image/jpeg", quality);
+      resolve({
+        base64: dataUrl.split(",")[1],
+        mimeType: "image/jpeg",
+        previewUrl: dataUrl,
+      });
+    };
+    img.onerror = reject;
+    img.src = objectUrl;
+  });
+}
+
 type AppState =
   | "landing"
   | "uploading"
@@ -103,7 +130,22 @@ export default function Home() {
     }
   }, []);
 
-  const handleFile = useCallback((file: File) => {
+  const handleFile = useCallback(async (file: File) => {
+    // HEIC/HEIF files from iPhones can't be decoded by the browser canvas
+    const isHeic = file.type === "image/heic" || file.type === "image/heif"
+      || file.name.toLowerCase().endsWith(".heic")
+      || file.name.toLowerCase().endsWith(".heif");
+
+    if (isHeic) {
+      setErrorInfo({
+        title: "iPhone photo detected",
+        message: "HEIC files can't be processed directly. In your Photos app, share the photo and choose \"Most Compatible\" format (JPG) before uploading.",
+        emoji: "📱",
+      });
+      setState("error");
+      return;
+    }
+
     if (!file.type.startsWith("image/")) {
       setErrorInfo({
         title: "That's not a pizza",
@@ -114,30 +156,28 @@ export default function Home() {
       return;
     }
 
-    if (file.size > 10 * 1024 * 1024) {
+    if (file.size > 20 * 1024 * 1024) {
       setErrorInfo({
         title: "Photo too thicc",
-        message: "Please upload an image under 10MB.",
+        message: "Please upload an image under 20MB.",
         emoji: "📦",
       });
       setState("error");
       return;
     }
 
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const dataUrl = e.target?.result as string;
-      const base64 = dataUrl.split(",")[1];
-      const mimeType = file.type;
-
-      setUploadedImage({
-        base64,
-        mimeType,
-        previewUrl: dataUrl,
-      });
+    try {
+      const compressed = await compressImage(file);
+      setUploadedImage(compressed);
       setState("consent");
-    };
-    reader.readAsDataURL(file);
+    } catch {
+      setErrorInfo({
+        title: "Couldn't read that photo",
+        message: "Something went wrong loading the image. Try a different file.",
+        emoji: "📷",
+      });
+      setState("error");
+    }
   }, []);
 
   const handleDrop = useCallback(
@@ -145,7 +185,7 @@ export default function Home() {
       e.preventDefault();
       setIsDragging(false);
       const file = e.dataTransfer.files[0];
-      if (file) handleFile(file);
+      if (file) void handleFile(file);
     },
     [handleFile]
   );
