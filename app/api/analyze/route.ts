@@ -1,10 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 
-const client = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY,
-});
-
 export interface AnalysisResult {
   face_detected: boolean;
   appears_minor: boolean;
@@ -27,6 +23,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
     const response = await client.messages.create({
       model: "claude-sonnet-4-5-20250929",
       max_tokens: 1024,

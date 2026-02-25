@@ -2,8 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import { GoogleGenAI } from "@google/genai";
 import { AnalysisResult } from "../analyze/route";
 
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-
 function buildPrompt(analysis: AnalysisResult): string {
   const { already_elderly, gender_presentation, notable_features, transformation_type } = analysis;
 
@@ -43,6 +41,7 @@ export async function POST(request: NextRequest) {
 
     const prompt = buildPrompt(analysis as AnalysisResult);
 
+    const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
     const response = await ai.models.generateContent({
       model: "gemini-2.5-flash-image",
       contents: [
